@@ -26,6 +26,7 @@ pub struct EventHook {
     cb: Rc<CallbackFn>,
 }
 
+#[allow(dead_code)]
 impl EventHook {
     pub fn register_ranges(
         ranges: &[(u32, u32)],

@@ -4,12 +4,13 @@ use std::{cell::RefCell, rc::Rc};
 
 use anyhow::Context;
 use log::{error, info, warn};
+use mutex::GlobalMutex;
 use nwd::NwgUi;
 use nwg::NativeUi;
 use rusqlite::{named_params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+    Foundation::{ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
     System::Threading::PROCESS_QUERY_INFORMATION,
     UI::WindowsAndMessaging::{
         EVENT_OBJECT_NAMECHANGE, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MOVESIZESTART,
@@ -20,6 +21,7 @@ use windows::Win32::{
 
 mod hook;
 mod monitor;
+mod mutex;
 mod process;
 mod window;
 
@@ -415,6 +417,16 @@ impl App {
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
+
+    // Attempt to create a global mutex for this process.
+    // If it fails, that means we have another instance running.
+    let _mutex = match GlobalMutex::create("Global\\{D1905271-98BC-4888-BC9D-B05810AA21CB}", true) {
+        Ok(g) => g,
+        Err(e) => match e.code() {
+            e if e == ERROR_ALREADY_EXISTS.to_hresult() => anyhow::bail!("app is already running"),
+            _ => Err(e).context("failed to create singleton mutex")?,
+        },
+    };
 
     nwg::init().context("Failed to init NWG")?;
     nwg::Font::set_global_family("Segoe UI").context("Failed to set default font")?;
