@@ -437,9 +437,7 @@ impl App {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    env_logger::init();
-
+fn run() -> anyhow::Result<()> {
     // Attempt to create a global mutex for this process.
     // If it fails, that means we have another instance running.
     let _mutex = match GlobalMutex::create("Global\\{D1905271-98BC-4888-BC9D-B05810AA21CB}", true) {
@@ -449,9 +447,6 @@ fn main() -> anyhow::Result<()> {
             _ => Err(e).context("failed to create singleton mutex")?,
         },
     };
-
-    nwg::init().context("Failed to init NWG")?;
-    nwg::Font::set_global_family("Segoe UI").context("Failed to set default font")?;
 
     let db = Connection::open_in_memory().context("Failed to open DB")?;
     db.execute_batch(
@@ -529,4 +524,18 @@ fn main() -> anyhow::Result<()> {
     nwg::unbind_raw_event_handler(&raw_hook).unwrap();
 
     Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
+    nwg::init().context("Failed to init NWG")?;
+    nwg::Font::set_global_family("Segoe UI").context("Failed to set default font")?;
+
+    // Display an error dialog if the run function fails (instead of logging to console, which is unavailable
+    // in the Windows subsystem).
+    match run() {
+        Ok(_) => Ok(()),
+        Err(e) => nwg::fatal_message("Error", &format!("{e:?}")),
+    }
 }
