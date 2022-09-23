@@ -6,7 +6,7 @@ use anyhow::Context;
 use log::{error, info, warn};
 use mutex::GlobalMutex;
 use nwd::NwgUi;
-use nwg::NativeUi;
+use nwg::{NativeUi, TrayNotificationFlags};
 use rusqlite::{named_params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use windows::Win32::{
@@ -140,6 +140,13 @@ pub struct App {
     #[nwg_control(parent: window, popup: true)]
     tray_menu: nwg::Menu,
 
+    #[nwg_control(parent: tray_menu, text: "About")]
+    #[nwg_events(OnMenuItemSelected: [App::on_about])]
+    tray_menu_about: nwg::MenuItem,
+
+    #[nwg_control(parent: tray_menu)]
+    tray_menu_sep: nwg::MenuSeparator,
+
     #[nwg_control(parent: tray_menu, text: "Exit")]
     #[nwg_events(OnMenuItemSelected: [App::on_exit])]
     tray_menu_exit: nwg::MenuItem,
@@ -156,6 +163,8 @@ impl App {
             icon: Default::default(),
             tray: Default::default(),
             tray_menu: Default::default(),
+            tray_menu_about: Default::default(),
+            tray_menu_sep: Default::default(),
             tray_menu_exit: Default::default(),
             data: RefCell::new(Default::default()),
             db: conn,
@@ -165,6 +174,19 @@ impl App {
     fn on_tray_click(&self) {
         let (x, y) = nwg::GlobalCursor::position();
         self.tray_menu.popup(x, y);
+    }
+
+    fn on_about(&self) {
+        self.tray.show(
+            &format!(
+                "Persistent Windows {}\n{}",
+                env!("VERGEN_BUILD_SEMVER"),
+                env!("VERGEN_GIT_SHA_SHORT")
+            ),
+            Some("About"),
+            Some(TrayNotificationFlags::LARGE_ICON),
+            Some(&self.icon),
+        );
     }
 
     fn on_exit(&self) {
