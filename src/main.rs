@@ -9,13 +9,20 @@ use nwd::NwgUi;
 use nwg::{NativeUi, TrayNotificationFlags};
 use rusqlite::{named_params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use windows::Win32::{
-    Foundation::{ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
-    System::Threading::PROCESS_QUERY_INFORMATION,
-    UI::WindowsAndMessaging::{
-        EVENT_OBJECT_NAMECHANGE, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MOVESIZESTART,
-        SHOW_WINDOW_CMD, SW_MAXIMIZE, SW_SHOWNORMAL, WINDOWPLACEMENT, WM_DISPLAYCHANGE,
-        WM_WTSSESSION_CHANGE, WPF_ASYNCWINDOWPLACEMENT,
+use widestring::widecstr;
+use windows::{
+    core::PCWSTR,
+    Win32::{
+        Foundation::{ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
+        System::Threading::{GetExitCodeProcess, WaitForSingleObject, PROCESS_QUERY_INFORMATION},
+        UI::{
+            Shell::ShellExecuteExW,
+            WindowsAndMessaging::{
+                EVENT_OBJECT_NAMECHANGE, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MOVESIZESTART,
+                SHOW_WINDOW_CMD, SW_MAXIMIZE, SW_SHOWNORMAL, WINDOWPLACEMENT, WM_DISPLAYCHANGE,
+                WM_WTSSESSION_CHANGE, WPF_ASYNCWINDOWPLACEMENT,
+            },
+        },
     },
 };
 
@@ -28,8 +35,13 @@ mod window;
 use hook::EventHook;
 use monitor::HMonitorExt;
 use window::HwndExt;
+use winreg::enums::HKEY_CURRENT_USER;
 
 use crate::process::ProcessExt;
+
+const HKCU: winreg::RegKey = winreg::RegKey::predef(HKEY_CURRENT_USER);
+const STARTUP_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+const STARTUP_NAME: &str = "PersistentWindows";
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 struct Topology {
@@ -125,6 +137,7 @@ pub struct AppData {
 #[derive(NwgUi)]
 pub struct App {
     #[nwg_control(flags: "DISABLED")]
+    #[nwg_events( OnInit: [App::on_init] )]
     window: nwg::Window,
 
     #[nwg_resource]
@@ -147,6 +160,10 @@ pub struct App {
     #[nwg_control(parent: tray_menu)]
     tray_menu_sep: nwg::MenuSeparator,
 
+    #[nwg_control(parent: tray_menu, text: "Autorun", check: false)]
+    #[nwg_events(OnMenuItemSelected: [App::on_autorun_toggle])]
+    tray_menu_autorun: nwg::MenuItem,
+
     #[nwg_control(parent: tray_menu, text: "Exit")]
     #[nwg_events(OnMenuItemSelected: [App::on_exit])]
     tray_menu_exit: nwg::MenuItem,
@@ -165,15 +182,46 @@ impl App {
             tray_menu: Default::default(),
             tray_menu_about: Default::default(),
             tray_menu_sep: Default::default(),
+            tray_menu_autorun: Default::default(),
             tray_menu_exit: Default::default(),
             data: RefCell::new(Default::default()),
             db: conn,
         }
     }
 
+    fn has_autostart() -> std::io::Result<bool> {
+        // Determine if we are already set to automatically start.
+        let key = HKCU.open_subkey(STARTUP_KEY)?;
+        if let Ok(_val) = key.get_value::<String, &str>("PersistentWindows") {
+            Ok::<bool, std::io::Error>(true)
+        } else {
+            Ok::<bool, std::io::Error>(false)
+        }
+    }
+
+    fn on_init(&self) {
+        if let Ok(r) = Self::has_autostart() {
+            self.tray_menu_autorun.set_checked(r);
+        }
+    }
+
     fn on_tray_click(&self) {
         let (x, y) = nwg::GlobalCursor::position();
         self.tray_menu.popup(x, y);
+    }
+
+    fn on_autorun_toggle(&self) {
+        match runas_admin("autorun") {
+            Ok(0) => {
+                self.tray_menu_autorun
+                    .set_checked(!self.tray_menu_autorun.checked());
+            }
+            Ok(_) => {}
+            Err(e) => {
+                nwg::modal_error_message(&self.window, "Error", &format!("{e:?}"));
+                return;
+            }
+        };
     }
 
     fn on_about(&self) {
@@ -437,6 +485,69 @@ impl App {
     }
 }
 
+fn runas_admin(params: &str) -> std::result::Result<i32, windows::core::Error> {
+    let exe =
+        widestring::WideCString::from_os_str(std::env::current_exe().unwrap().as_os_str()).unwrap();
+    let params = widestring::WideCString::from_str(params).unwrap();
+
+    let mut info = windows::Win32::UI::Shell::SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<windows::Win32::UI::Shell::SHELLEXECUTEINFOW>() as u32,
+        fMask: windows::Win32::UI::Shell::SEE_MASK_NOCLOSEPROCESS,
+        hwnd: HWND(0),
+        lpVerb: PCWSTR(widecstr!("runas").as_ptr()),
+        lpFile: PCWSTR(exe.as_ptr()),
+        lpParameters: PCWSTR(params.as_ptr()),
+        nShow: SW_SHOWNORMAL.0 as i32,
+
+        ..Default::default()
+    };
+
+    match unsafe { ShellExecuteExW(&mut info) }.as_bool() {
+        true => {}
+        false => Err(windows::core::Error::from_win32())?,
+    }
+
+    unsafe { WaitForSingleObject(info.hProcess, !0) };
+
+    let mut code = 0u32;
+    match unsafe { GetExitCodeProcess(info.hProcess, &mut code) }.as_bool() {
+        true => {}
+        false => Err(windows::core::Error::from_win32())?,
+    }
+
+    Ok(code as i32)
+}
+
+fn toggle_autorun() -> anyhow::Result<()> {
+    let cur_state = App::has_autostart().context("could not determine auto-start state")?;
+
+    let key = HKCU
+        .open_subkey_with_flags(
+            STARTUP_KEY,
+            winreg::enums::KEY_READ | winreg::enums::KEY_WRITE,
+        )
+        .context("could not open registry key")?;
+    match cur_state {
+        true => {
+            // Disable autorun.
+            key.delete_value(STARTUP_NAME)
+                .context("failed to delete startup value")?;
+        }
+        false => {
+            // Enable autorun.
+            key.set_value(
+                STARTUP_NAME,
+                &std::env::current_exe()
+                    .context("failed to query exe name")?
+                    .as_os_str(),
+            )
+            .context("failed to set startup value")?;
+        }
+    };
+
+    Ok(())
+}
+
 fn run() -> anyhow::Result<()> {
     // Attempt to create a global mutex for this process.
     // If it fails, that means we have another instance running.
@@ -528,6 +639,23 @@ fn run() -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
+
+    // Check and see if we were invoked to run a utility command.
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() > 1 {
+        let res = match args[1].as_str() {
+            "autorun" => toggle_autorun(),
+            _ => anyhow::bail!("unknown command"),
+        };
+
+        return match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                nwg::error_message("Error", &format!("{e:?}"));
+                Err(e)
+            }
+        };
+    }
 
     nwg::init().context("Failed to init NWG")?;
     nwg::Font::set_global_family("Segoe UI").context("Failed to set default font")?;

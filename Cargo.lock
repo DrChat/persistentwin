@@ -510,6 +510,7 @@ dependencies = [
  "vergen",
  "widestring",
  "windows",
+ "winreg",
 ]
 
 [[package]]
