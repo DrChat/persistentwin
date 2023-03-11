@@ -52,7 +52,7 @@ impl ProcessExt for HANDLE {
             GetTokenInformation(
                 token,
                 TokenElevation,
-                &mut elevation as *mut _ as *mut _,
+                Some(&mut elevation as *mut _ as *mut _),
                 std::mem::size_of::<TOKEN_ELEVATION>() as u32,
                 &mut ret_len,
             )

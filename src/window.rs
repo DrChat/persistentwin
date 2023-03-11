@@ -84,7 +84,7 @@ impl HwndExt for HWND {
 
     fn owner(&self) -> Result<OwnerInfo> {
         let mut pid = 0u32;
-        let tid = unsafe { GetWindowThreadProcessId(self.clone(), &mut pid) };
+        let tid = unsafe { GetWindowThreadProcessId(self.clone(), Some(&mut pid)) };
 
         if tid == 0 {
             Err(Error::from_win32())?;

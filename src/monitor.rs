@@ -71,9 +71,7 @@ pub fn enum_monitors<F: FnMut(HMONITOR, HDC, Option<&mut RECT>) -> bool>(
     let ret = unsafe {
         EnumDisplayMonitors(
             None,
-            rect.as_ref()
-                .map(|c| c as *const RECT)
-                .unwrap_or(core::ptr::null()),
+            rect.as_ref().map(|c| c as *const RECT),
             Some(enum_sys::<F>),
             LPARAM(&mut cb as *mut _ as isize),
         )
