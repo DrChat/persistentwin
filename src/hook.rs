@@ -1,5 +1,5 @@
 use windows::Win32::{
-    Foundation::{HINSTANCE, HWND},
+    Foundation::{HMODULE, HWND},
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK},
@@ -16,7 +16,7 @@ thread_local! {
     static EVENT_TABLE: RefCell<HashMap<isize, EventHook>> = RefCell::new(HashMap::new());
 }
 
-fn current_module() -> HINSTANCE {
+fn current_module() -> HMODULE {
     unsafe { GetModuleHandleW(None) }.expect("failed to query current module")
 }
 
