@@ -241,18 +241,12 @@ impl App {
         nwg::stop_thread_dispatch();
     }
 
-    fn find_window(
-        &self,
-        topology: usize,
-        path: &str,
-        class: &str,
-        title: &str,
-    ) -> Option<WindowDisplay> {
+    fn find_window(&self, hwnd: HWND, topology: usize) -> Option<WindowDisplay> {
         if let Some(disp) = self
             .db
             .query_row(
-                "SELECT disp FROM appwindow WHERE topology=:topology AND class=:class AND path=:path AND title=:title",
-                named_params! { ":topology": topology, ":class": class, ":path": path, ":title": title },
+                "SELECT disp FROM appwindow WHERE hwnd=:hwnd AND topology=:topology",
+                named_params! { ":hwnd": hwnd.0, ":topology": topology },
                 |r| r.get::<usize, Vec<u8>>(0),
             )
             .optional()
@@ -308,7 +302,6 @@ impl App {
 
         if hwnd.is_visible() {
             let class_name = hwnd.class_name().context("failed to query class name")?;
-            let title = hwnd.title().context("failed to query title")?;
             let placement = hwnd.placement().context("failed to query placement")?;
 
             let owner = hwnd.owner().context("failed to query window owner")?;
@@ -319,7 +312,7 @@ impl App {
                 .full_image_name()
                 .context("failed to query process exe name")?;
 
-            if let Some(restore_placement) = self.find_window(topology, &exe, &class_name, &title) {
+            if let Some(restore_placement) = self.find_window(hwnd, topology) {
                 let wnd_placement = WINDOWPLACEMENT {
                     length: core::mem::size_of::<WINDOWPLACEMENT>() as u32,
                     flags: WPF_ASYNCWINDOWPLACEMENT,
@@ -361,24 +354,7 @@ impl App {
             .expect("no active topology");
 
         if hwnd.is_visible() && hwnd.is_top_level() {
-            let class_name = hwnd.class_name().context("failed to query class name")?;
-            let title = hwnd.title().context("failed to query title")?;
             let placement = hwnd.placement().context("failed to query placement")?;
-
-            let owner = hwnd.owner().context("failed to query window owner")?;
-            let proc = process::open(PROCESS_QUERY_INFORMATION.0, owner.process_id)
-                .context("failed to open process")?;
-
-            let exe = proc
-                .full_image_name()
-                .context("failed to query process exe name")?;
-
-            /*
-            println!(
-                "{exe}: {class_name} {title} {:?}",
-                placement.rcNormalPosition
-            );
-            */
 
             let mut rect = Vec::new();
             bson::to_document(&WindowDisplay::from(placement))
@@ -388,8 +364,8 @@ impl App {
 
             self.db
                 .execute(
-                    "REPLACE INTO appwindow (path, topology, class, title, disp) VALUES (:path, :topology, :class, :title, :disp)",
-                    named_params! { ":path": exe, ":topology": topology, ":class": &class_name, ":title": title, ":disp": rect },
+                    "REPLACE INTO appwindow (hwnd, topology, disp) VALUES (:hwnd, :topology, :disp)",
+                    named_params! { ":hwnd": hwnd.0, ":topology": topology, ":disp": rect },
                 )
                 .context("failed to query database")?;
         }
@@ -562,12 +538,10 @@ fn run() -> anyhow::Result<()> {
     let db = Connection::open_in_memory().context("Failed to open DB")?;
     db.execute_batch(
         "CREATE TABLE appwindow (
-                path        TEXT NOT NULL,
+                hwnd        INTEGER NOT NULL,
                 topology    INTEGER NOT NULL,
-                class       STRING NOT NULL,
-                title       TEXT NOT NULL,
                 disp        BLOB NOT NULL,
-                PRIMARY KEY (path, topology, class, title),
+                PRIMARY KEY (hwnd, topology),
                 FOREIGN KEY (topology) REFERENCES topology(id)
             );
             CREATE TABLE topology (
