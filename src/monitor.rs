@@ -53,6 +53,7 @@ impl HMonitorExt for HMONITOR {
     }
 }
 
+/// Enumerate all displays attached to the system. This corresponds to `EnumDisplayMonitors`.
 pub fn enum_monitors<F: FnMut(HMONITOR, HDC, Option<&mut RECT>) -> bool>(
     rect: Option<RECT>,
     mut cb: F,
@@ -83,6 +84,8 @@ pub fn enum_monitors<F: FnMut(HMONITOR, HDC, Option<&mut RECT>) -> bool>(
     }
 }
 
+/// List out all monitors on the system. If `rect` is specified, this will list all
+/// monitors that intersect with the rectangle.
 pub fn monitors(rect: Option<RECT>) -> Result<Vec<(HMONITOR, HDC)>> {
     let mut vec = Vec::new();
     enum_monitors(rect, |hmon, hdc, _rect| {

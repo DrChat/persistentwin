@@ -101,6 +101,7 @@ impl HwndExt for HWND {
     }
 }
 
+/// Enumerate all windows present on the system. This corresponds to `EnumWindows`.
 pub fn enum_windows<F: FnMut(HWND) -> bool>(mut cb: F) -> Result<()> {
     extern "system" fn enum_sys<F: FnMut(HWND) -> bool>(wnd: HWND, param: LPARAM) -> BOOL {
         let cb = unsafe { &mut *(param.0 as *mut F) };
