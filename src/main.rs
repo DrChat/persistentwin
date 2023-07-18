@@ -14,7 +14,7 @@ use windows::{
     core::PCWSTR,
     Win32::{
         Foundation::{ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
-        System::Threading::{GetExitCodeProcess, WaitForSingleObject, PROCESS_QUERY_INFORMATION},
+        System::Threading::{GetExitCodeProcess, WaitForSingleObject},
         UI::{
             Shell::ShellExecuteExW,
             WindowsAndMessaging::{
@@ -36,8 +36,6 @@ use hook::EventHook;
 use monitor::HMonitorExt;
 use window::HwndExt;
 use winreg::enums::HKEY_CURRENT_USER;
-
-use crate::process::ProcessExt;
 
 const HKCU: winreg::RegKey = winreg::RegKey::predef(HKEY_CURRENT_USER);
 const STARTUP_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -263,7 +261,10 @@ impl App {
 
         for hwnd in handles {
             // Silently ignore any errors for individual windows.
-            let _ = self.restore_window(hwnd);
+            match self.restore_window(hwnd) {
+                Ok(_) => {}
+                Err(e) => error!("{}", e.context("failed to restore window")),
+            }
         }
 
         Ok(())
@@ -304,14 +305,6 @@ impl App {
             let class_name = hwnd.class_name().context("failed to query class name")?;
             let placement = hwnd.placement().context("failed to query placement")?;
 
-            let owner = hwnd.owner().context("failed to query window owner")?;
-            let proc = process::open(PROCESS_QUERY_INFORMATION.0, owner.process_id)
-                .context("failed to open process")?;
-
-            let exe = proc
-                .full_image_name()
-                .context("failed to query process exe name")?;
-
             if let Some(restore_placement) = self.find_window(hwnd, topology) {
                 let wnd_placement = WINDOWPLACEMENT {
                     length: core::mem::size_of::<WINDOWPLACEMENT>() as u32,
@@ -333,8 +326,11 @@ impl App {
                             .context("failed to restore maximized window placement")?;
                     }
                     _ => info!(
-                        "restoring {exe} - {class_name} from {:?} to {:?}",
-                        placement.rcNormalPosition, wnd_placement.rcNormalPosition
+                        "restoring {:#010X} from {:?} to {:?} ({})",
+                        hwnd.0,
+                        placement.rcNormalPosition,
+                        wnd_placement.rcNormalPosition,
+                        class_name,
                     ),
                 };
 
@@ -451,7 +447,8 @@ impl App {
                 self.data.borrow_mut().active_topology = Some(topo_id);
 
                 info!("display change: {topo_id}");
-                self.restore_windows().unwrap();
+                let _ =
+                    run_fallible(|| self.restore_windows().context("failed to restore windows"));
             }
             WM_WTSSESSION_CHANGE => {}
             _ => {}
@@ -459,6 +456,18 @@ impl App {
 
         None
     }
+}
+
+/// Run a fallible function, and show an error message if it fails.
+fn run_fallible<T>(f: impl FnOnce() -> Result<T, anyhow::Error>) -> Result<T, anyhow::Error> {
+    return match f() {
+        Ok(t) => Ok(t),
+        Err(e) => {
+            let e = Into::<anyhow::Error>::into(e);
+            nwg::error_message("Error", &format!("{}", e));
+            Err(e)
+        }
+    };
 }
 
 fn runas_admin(params: &str) -> std::result::Result<i32, windows::core::Error> {

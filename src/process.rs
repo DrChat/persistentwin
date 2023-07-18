@@ -73,6 +73,7 @@ impl ProcessExt for HANDLE {
     }
 }
 
+#[allow(dead_code)]
 pub fn open(access: u32, id: u32) -> Result<HANDLE> {
     unsafe { OpenProcess(PROCESS_ACCESS_RIGHTS(access), false, id) }
 }

@@ -17,7 +17,7 @@ nwg = {version = "^1.0.12", package = "native-windows-gui", features = ["high-dp
 nwd = {version = "^1.0.5", package = "native-windows-derive"}
 log = "0.4.17"
 rusqlite = { version = "0.29", features = ["bundled"] }
-anyhow = { version = "1.0.65", features = ["backtrace"] }
+anyhow = { version = "1.0.65", features = ["backtrace", "std"] }
 bson = "2.4.0"
 serde = { version = "1.0.144", features = ["derive"] }
 env_logger = "0.10"
