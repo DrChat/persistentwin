@@ -8,7 +8,10 @@ use windows::{
         Graphics::Gdi::{
             EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
         },
-        UI::WindowsAndMessaging::MONITORINFOF_PRIMARY,
+        UI::{
+            HiDpi::{GetDpiForMonitor, MONITOR_DPI_TYPE},
+            WindowsAndMessaging::MONITORINFOF_PRIMARY,
+        },
     },
 };
 
@@ -26,8 +29,24 @@ pub struct MonitorInfo {
     pub name: String,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u32)]
+pub enum MonitorDpiType {
+    #[default]
+    Effective = 0,
+    Angular = 1,
+    Raw = 2,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorDpi {
+    pub x: u32,
+    pub y: u32,
+}
+
 pub trait HMonitorExt {
     fn info(&self) -> Result<MonitorInfo>;
+    fn dpi(&self, ty: MonitorDpiType) -> Result<MonitorDpi>;
 }
 
 impl HMonitorExt for HMONITOR {
@@ -50,6 +69,21 @@ impl HMonitorExt for HMONITOR {
             }
             false => Err(Error::from_win32()),
         }
+    }
+
+    fn dpi(&self, ty: MonitorDpiType) -> Result<MonitorDpi> {
+        let mut dpi = MonitorDpi::default();
+
+        unsafe {
+            GetDpiForMonitor(
+                self.clone(),
+                MONITOR_DPI_TYPE(ty as u32 as i32),
+                &mut dpi.x,
+                &mut dpi.y,
+            )?;
+        }
+
+        Ok(dpi)
     }
 }
 

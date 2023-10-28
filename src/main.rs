@@ -33,13 +33,19 @@ mod process;
 mod window;
 
 use hook::EventHook;
-use monitor::HMonitorExt;
+use monitor::{HMonitorExt, MonitorDpi};
 use window::HwndExt;
 use winreg::enums::HKEY_CURRENT_USER;
 
 const HKCU: winreg::RegKey = winreg::RegKey::predef(HKEY_CURRENT_USER);
 const STARTUP_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 const STARTUP_NAME: &str = "PersistentWindows";
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+struct Monitor {
+    rect: Rect,
+    dpi: MonitorDpi,
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 struct Topology {
